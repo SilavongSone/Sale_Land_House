@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@layer rsuite {
+  @import "rsuite/dist/rsuite.min.css";
+}
+
+@font-face {
+  font-family: "NotoSansLao";
+  src: url("./assets//fonts/NotoSansLao-VariableFont_wdth\,wght.ttf") format("truetype");
+  font-weight: 400;
+}
+
+body {
+  font-family: "NotoSansLao", sans-serif;
+}
