@@ -2,6 +2,7 @@
 export type LandPlotStatus = "AVAILABLE" | "SOLD" | "RESERVED";
 
 export interface LandPlot {
+  zone: any;
   landPlotId: number;
   zoneId: number;
   plotNumber: string;

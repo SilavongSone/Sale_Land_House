@@ -1,136 +1,181 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { Container, Content, Breadcrumb, Panel, Loader } from 'rsuite';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useState, useCallback, useRef, useEffect } from "react";
+import { Container, Content, Panel, Affix, Steps, Divider } from "rsuite";
 import ProjectSelectionPage from "./SelectProject";
-import ZoneSelectionPage from "./SelectZone";
+import ZoneSelect from "./SelectZone";
 import PropertyListPage from "./PropertyListPage";
-import { useProjectStore } from "../../../store/projectStore";
-import { useZoneStore } from "../../../store/zoneStore";
 
 const SalePage: React.FC = () => {
-  const navigate = useNavigate();
-  const { projectId, zoneId } = useParams<{ projectId?: string; zoneId?: string }>();
-  
-  const { projects, fetchProjects } = useProjectStore();
-  const { zones, fetchZones } = useZoneStore();
-  
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const [selectedZone, setSelectedZone] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    const loadData = async () => {
-      // No params = reset all
-      if (!projectId && !zoneId) {
-        setSelectedProject(null);
-        setSelectedZone(null);
-        return;
-      }
+  // Refs for scrolling
+  const projectRef = useRef<HTMLDivElement>(null);
+  const zoneRef = useRef<HTMLDivElement>(null);
+  const plotRef = useRef<HTMLDivElement>(null);
 
-      setIsLoading(true);
-      try {
-        // Ensure projects are loaded
-        if (projects.length === 0) {
-          await fetchProjects({ status: 'ACTIVE' });
-        }
+  // Calculate current step
+  const currentStep = selectedZone ? 2 : selectedProject ? 1 : 0;
 
-        // Find project
-        const project = projects.find(p => p.projectId === Number(projectId));
-        if (!project) {
-          navigate('/admin/sales', { replace: true });
-          return;
-        }
-
-        setSelectedProject(project);
-
-        // Load zones if needed
-        if (zoneId) {
-          if (zones.length === 0 || zones[0]?.projectId !== Number(projectId)) {
-            await fetchZones({ projectId: Number(projectId) });
-          }
-          
-          const zone = zones.find(z => 
-            z.zoneId === Number(zoneId) && z.projectId === Number(projectId)
-          );
-
-          if (zone) {
-            setSelectedZone(zone);
-          } else {
-            navigate(`/admin/sales/${projectId}`, { replace: true });
-          }
-        } else {
-          setSelectedZone(null);
-        }
-      } catch (error) {
-        console.error('Load error:', error);
-        navigate('/admin/sales', { replace: true });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadData();
-  }, [projectId, zoneId]); // Only URL params
-
-  // 📍 Handlers - Memoized
+  // Handle project selection
   const handleSelectProject = useCallback((project: any) => {
     setSelectedProject(project);
     setSelectedZone(null);
-    navigate(`/admin/sales/${project.projectId}`);
-  }, [navigate]);
+  }, []);
 
+  // Handle zone selection
   const handleSelectZone = useCallback((zone: any) => {
     setSelectedZone(zone);
-    navigate(`/admin/sales/${selectedProject.projectId}/${zone.zoneId}`);
-  }, [navigate, selectedProject]);
+  }, []);
 
-  const handleBackToProjects = useCallback(() => {
+  // Handle cancel zone selection
+  const handleCancelZoneSelection = useCallback(() => {
     setSelectedProject(null);
     setSelectedZone(null);
-    navigate('/admin/sales');
-  }, [navigate]);
+  }, []);
 
-  const handleBackToZones = useCallback(() => {
-    setSelectedZone(null);
-    navigate(`/admin/sales/${selectedProject?.projectId}`);
-  }, [navigate, selectedProject]);
+  // Handle step click - navigate to specific step
+  const handleStepClick = useCallback(
+    (step: number) => {
+      if (step === 0) {
+        // Go back to project selection
+        setSelectedProject(null);
+        setSelectedZone(null);
+        setTimeout(() => {
+          projectRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }, 100);
+      } else if (step === 1 && selectedProject) {
+        // Go back to zone selection (only if project is selected)
+        setSelectedZone(null);
+        setTimeout(() => {
+          zoneRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }, 100);
+      }
+      // Step 2 (plot) is the current view, no action needed
+    },
+    [selectedProject]
+  );
 
+  // Auto-scroll when project is selected
+  useEffect(() => {
+    if (selectedProject && zoneRef.current) {
+      setTimeout(() => {
+        zoneRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 300);
+    }
+  }, [selectedProject]);
 
-  if (isLoading) {
-    return (
-      <Container className="min-h-screen bg-gray-50">
-        <Content className="max-w-7xl px-4">
-          <div className="flex items-center justify-center py-20">
-            <Loader size="lg" content="ກຳລັງໂຫຼດຂໍ້ມູນ..." vertical />
-          </div>
-        </Content>
-      </Container>
-    );
-  }
-
-  const CurrentView = !selectedProject 
-    ? <ProjectSelectionPage onSelectProject={handleSelectProject} />
-    : !selectedZone
-    ? <ZoneSelectionPage
-        selectedProject={selectedProject}
-        onSelectZone={handleSelectZone}
-        onBack={handleBackToProjects}
-      />
-    : <PropertyListPage
-        selectedProject={selectedProject}
-        selectedZone={selectedZone}
-        onBack={handleBackToZones}
-      />;
+  // Auto-scroll when zone is selected
+  useEffect(() => {
+    if (selectedZone && plotRef.current) {
+      setTimeout(() => {
+        plotRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 300);
+    }
+  }, [selectedZone]);
 
   return (
-    <Container className="min-h-screen ">
-      <Content className="max-w-7xl px-4 ">
-        <Breadcrumb className="">
-          
-        </Breadcrumb>
+    <Container>
+      <Content className="max-w-7xl bg-gray-50 mx-auto absolute">
+        <Panel bordered={false}>
+          {/* Title and Description */}
+          <div className="text-center mb-4">
+            <h3 className="text-gray-700!">
+              ຊອກຫາດິນຫຼືບ້ານໄດ້ງ່າຍໆ ພຽງ 3 ຂັ້ນຕອນ
+            </h3>
+          </div>
 
-        <Panel className="transition-all duration-300 ease-in-out">
-          {CurrentView}
+          {/* Step Bar - Sticky */}
+          <Affix top={64}>
+            <div className="bg-white/50 backdrop-blur-lg! shadow-sm py-3 rounded-lg  px-4 ">
+              <Steps current={currentStep} className="max-w-3xl mx-auto">
+                <Steps.Item
+                  title="PROJECT"
+                  status={
+                    selectedProject
+                      ? "finish"
+                      : currentStep === 0
+                      ? "process"
+                      : "wait"
+                  }
+                  onClick={() => handleStepClick(0)}
+                  style={{ cursor: "pointer" }}
+                />
+                <Steps.Item
+                  title="ZONE"
+                  status={
+                    selectedZone
+                      ? "finish"
+                      : currentStep === 1
+                      ? "process"
+                      : "wait"
+                  }
+                  onClick={() => selectedProject && handleStepClick(1)}
+                  style={{
+                    cursor: selectedProject ? "pointer" : "not-allowed",
+                    opacity: selectedProject ? 1 : 0.5,
+                  }}
+                />
+                <Steps.Item
+                  title="PLOT"
+                  status={currentStep === 2 ? "process" : "wait"}
+                  style={{
+                    cursor: "default",
+                    opacity: selectedZone ? 1 : 0.5,
+                  }}
+                />
+              </Steps>
+            </div>
+          </Affix>
+
+          {/* 1. Projects Section */}
+          <div ref={projectRef} className="scroll-mt-40">
+            <Panel>
+              <ProjectSelectionPage
+                selectedProject={selectedProject}
+                onSelectProject={handleSelectProject}
+              />
+            </Panel>
+          </div>
+
+          {/* 2. Zones Section */}
+          {selectedProject && (
+            <div ref={zoneRef} className="scroll-mt-40">
+              <Divider className="my-8" />
+              <Panel bordered={false}>
+                <ZoneSelect
+                  selectedProject={selectedProject}
+                  onSelectZone={handleSelectZone}
+                  onCancelSelection={handleCancelZoneSelection}
+                />
+              </Panel>
+            </div>
+          )}
+
+          {/* 3. Properties Section */}
+          {selectedZone && (
+            <div ref={plotRef} className="scroll-mt-40">
+              <Divider className="" />
+              <Panel bordered={false}>
+                <PropertyListPage
+                  selectedProject={selectedProject}
+                  selectedZone={selectedZone}
+                  onBack={() => setSelectedZone(null)}
+                />
+              </Panel>
+            </div>
+          )}
         </Panel>
       </Content>
     </Container>

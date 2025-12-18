@@ -16,10 +16,9 @@ import {
 import { BarChart2, CheckCircle, Circle } from "lucide-react";
 import { useZoneStore } from "../../../store/zoneStore";
 import { useProjectStore } from "../../../store/projectStore";
-import { getProjectRemainingArea } from "../../../utils/area/calculations";
+import { useAreaStore } from "../../../store/areaStore";
 import { formatArea } from "../../../utils/formatters/formatn-number";
 import type { Zone, ZoneCreateInput } from "../../../types/zone";
-import type { ProjectAreaItem } from "../../../types/project";
 
 const { StringType, NumberType } = Schema.Types;
 
@@ -75,22 +74,35 @@ const ZoneForm = ({
   zone: Zone | null;
 }) => {
   const formRef = useRef<any>(null);
-  const { zones, createZone, updateZone, isLoading } = useZoneStore();
+  const { createZone, updateZone, isLoading } = useZoneStore();
   const {
-    projectOptions, // ✅ Changed from 'projects' to 'projectOptions'
+    projectOptions,
     fetchProjectOptions,
     isLoading: loadingProjects,
   } = useProjectStore();
+
+  // ✅ ใช้ Area Store แทน
+  const {
+    projectWithZones,
+    fetchProjectWithZones,
+    loading: loadingArea,
+    clear: clearAreaData,
+  } = useAreaStore();
+  useEffect(() => {
+    if (projectWithZones) {
+      console.log("🔥 projectWithZones updated:", projectWithZones);
+    }
+  }, [projectWithZones]);
 
   const [formValue, setFormValue] = useState<FormValue>(initialFormValue);
   const [areaWarning, setAreaWarning] = useState("");
 
   useEffect(() => {
-    if (open && !projectOptions.length) fetchProjectOptions(); // ✅ Changed
-  }, [open, projectOptions.length, fetchProjectOptions]); // ✅ Changed
+    if (open && !projectOptions.length) fetchProjectOptions();
+  }, [open, projectOptions.length, fetchProjectOptions]);
 
   useEffect(() => {
-    if (zone && projectOptions.length > 0) { // ✅ Changed
+    if (zone && projectOptions.length > 0) {
       setFormValue({
         zoneName: zone.zoneName,
         projectId: zone.projectId,
@@ -101,13 +113,21 @@ const ZoneForm = ({
         description: zone.description || "",
         status: zone.status,
       });
+
+      // ✅ Fetch area data สำหรับ project ที่เลือก
+      if (zone.projectId) {
+        fetchProjectWithZones(String(zone.projectId));
+      }
+
       setAreaWarning("");
     } else if (!zone && open) {
       setFormValue(initialFormValue);
       setAreaWarning("");
+      clearAreaData();
     }
-  }, [zone, open, projectOptions]); // ✅ Changed
+  }, [zone, open, projectOptions]);
 
+  // ✅ ฟังก์ชันตรวจสอบพื้นที่จาก API
   const checkProjectArea = (
     projectId: number | null,
     requestedArea: number
@@ -117,29 +137,23 @@ const ZoneForm = ({
       return;
     }
 
-    const project = projectOptions.find((p) => p.projectId === projectId); // ✅ Changed
-    if (!project) {
-      setAreaWarning("");
+    // ถ้ายังไม่มีข้อมูลจาก API
+    if (!projectWithZones || projectWithZones.projectId !== projectId) {
       return;
     }
 
-    const existingZones: ProjectAreaItem[] = zones.map((z) => ({
-      zoneId: Number(z.zoneId),
-      projectId: z.projectId,
-      totalLandArea: z.totalLandArea,
-    }));
+    // ถ้ากำลังแก้ไข Zone ต้องหัก area ของ Zone นี้ออกก่อน
+    let actualRemainingArea = projectWithZones.remainingArea;
 
-    const remainingArea = getProjectRemainingArea(
-      projectId,
-      project.totalLandArea,
-      existingZones,
-      zone?.zoneId
-    );
+    if (zone) {
+      // เพิ่มพื้นที่ของ zone ที่กำลังแก้กลับเข้าไป
+      actualRemainingArea += zone.totalLandArea;
+    }
 
-    if (requestedArea > remainingArea) {
+    if (requestedArea > actualRemainingArea) {
       setAreaWarning(
         `ເນື້ອທີ່ໂຊນເກີນພື້ນທີ່ທີ່ເຫຼືອຂອງໂຄງການ! ພື້ນທີ່ເຫຼືອ: ${formatArea(
-          remainingArea
+          actualRemainingArea
         )} m²`
       );
     } else {
@@ -147,16 +161,36 @@ const ZoneForm = ({
     }
   };
 
+  // ✅ เมื่อเปลี่ยน Project -> Fetch area data
   const handleProjectChange = (projectId: number | null) => {
     setFormValue((prev) => ({ ...prev, projectId }));
-    checkProjectArea(projectId, formValue.totalLandArea);
+
+    if (projectId) {
+      fetchProjectWithZones(String(projectId)).then(() => {
+        // หลังจาก fetch เสร็จ ให้ตรวจสอบพื้นที่
+        setTimeout(() => {
+          checkProjectArea(projectId, formValue.totalLandArea);
+        }, 100);
+      });
+    } else {
+      clearAreaData();
+      setAreaWarning("");
+    }
   };
 
+  // ✅ เมื่อเปลี่ยนพื้นที่
   const handleAreaChange = (value: string | number | null) => {
     const area = Number(value) || 0;
     setFormValue((prev) => ({ ...prev, totalLandArea: area }));
     checkProjectArea(formValue.projectId, area);
   };
+
+  // ✅ ตรวจสอบพื้นที่ทุกครั้งที่ projectWithZones เปลี่ยน
+  useEffect(() => {
+    if (formValue.projectId && formValue.totalLandArea > 0) {
+      checkProjectArea(formValue.projectId, formValue.totalLandArea);
+    }
+  }, [projectWithZones, formValue.projectId, formValue.totalLandArea]);
 
   const handleSubmit = async () => {
     if (!formRef.current?.check()) {
@@ -236,38 +270,62 @@ const ZoneForm = ({
   const handleClose = () => {
     setFormValue(initialFormValue);
     setAreaWarning("");
+    clearAreaData();
     onClose();
   };
 
   const selectedProject = formValue.projectId
-    ? projectOptions.find((p) => p.projectId === formValue.projectId) // ✅ Changed
+    ? projectOptions.find((p) => p.projectId === formValue.projectId)
     : null;
 
-  const projectOptionsForSelect = projectOptions.map((p) => ({ // ✅ Changed variable name to avoid confusion
+  const projectOptionsForSelect = projectOptions.map((p) => ({
     label: `${p.projectName} (${formatArea(p.totalLandArea)} m²)`,
     value: p.projectId,
   }));
 
+  // ✅ แสดงข้อมูลจาก API
   const renderProjectInfo = () => {
-    if (!selectedProject) return null;
+    if (!selectedProject || !formValue.projectId) return null;
 
-    const existingZones: ProjectAreaItem[] = zones.map((z) => ({
-      zoneId: Number(z.zoneId),
-      projectId: z.projectId,
-      totalLandArea: z.totalLandArea,
-    }));
+    // รอข้อมูลจาก API
+    if (loadingArea) {
+      return (
+        <div className="bg-gray-100 p-3 rounded mt-2 text-sm text-center">
+          <Loader size="xs" content="ກຳລັງໂຫຼດຂໍ້ມູນ..." />
+        </div>
+      );
+    }
 
-    const remainingArea = getProjectRemainingArea(
-      selectedProject.projectId,
-      selectedProject.totalLandArea,
-      existingZones,
-      zone?.zoneId
-    );
+    // ถ้ายังไม่มีข้อมูล หรือข้อมูลไม่ตรงกับ project ที่เลือก
+    if (
+      !projectWithZones ||
+      projectWithZones.projectId !== formValue.projectId
+    ) {
+      return (
+        <div className="bg-gray-100 p-3 rounded mt-2 text-sm">
+          <div className="flex items-center text-gray-600 gap-2">
+            <BarChart2 size={16} className="shrink-0" />
+            <span className="wrap-break-word">
+              ພື້ນທີ່ທັງໝົດ:{" "}
+              <strong>{formatArea(selectedProject.totalLandArea)} m²</strong>
+            </span>
+          </div>
+        </div>
+      );
+    }
 
-    const usedArea = selectedProject.totalLandArea - remainingArea;
+    // คำนวณพื้นที่ที่เหลือจริง (ถ้ากำลังแก้ไข ให้บวกพื้นที่เดิมกลับเข้าไป)
+    let actualRemainingArea = projectWithZones.remainingArea;
+    let actualUsedArea = projectWithZones.allocatedToZones || 0;
+
+    if (zone) {
+      actualRemainingArea += zone.totalLandArea;
+      actualUsedArea -= zone.totalLandArea;
+    }
+
     const utilization =
-      selectedProject.totalLandArea > 0
-        ? ((usedArea / selectedProject.totalLandArea) * 100).toFixed(1)
+      projectWithZones.totalArea > 0
+        ? ((actualUsedArea / projectWithZones.totalArea) * 100).toFixed(1)
         : 0;
 
     return (
@@ -276,28 +334,34 @@ const ZoneForm = ({
           <BarChart2 size={16} className="shrink-0" />
           <span className="wrap-break-word">
             ພື້ນທີ່ທັງໝົດ:{" "}
-            <strong>{formatArea(selectedProject.totalLandArea)} m²</strong>
+            <strong>{formatArea(projectWithZones.totalArea)} m²</strong>
           </span>
         </div>
 
         <div className="flex items-center text-gray-600 mb-2 gap-2">
           <CheckCircle size={16} className="text-green-600 shrink-0" />
           <span className="wrap-break-word">
-            ໃຊ້ໄປແລ້ວ: <strong>{formatArea(usedArea)} m²</strong> (
+            ໃຊ້ໄປແລ້ວ: <strong>{formatArea(actualUsedArea)} m²</strong> (
             {utilization}%)
           </span>
         </div>
 
         <div
           className={`flex items-center font-bold gap-2 ${
-            remainingArea > 0 ? "text-green-600" : "text-red-600"
+            actualRemainingArea > 0 ? "text-green-600" : "text-red-600"
           }`}
         >
           <Circle size={16} className="shrink-0" />
           <span className="wrap-break-word">
-            ພື້ນທີ່ເຫຼືອ: {formatArea(remainingArea)} m²
+            ພື້ນທີ່ເຫຼືອ: {formatArea(actualRemainingArea)} m²
           </span>
         </div>
+
+        {projectWithZones.zoneCount > 0 && (
+          <div className="text-xs text-gray-500 mt-2">
+            ມີທັງໝົດ {projectWithZones.zoneCount} ໂຊນ
+          </div>
+        )}
       </div>
     );
   };
@@ -328,13 +392,12 @@ const ZoneForm = ({
           >
             <div className="w-full">
               <Grid fluid className="m-0">
-                {/* Project and Zone Type - 2 Columns on larger screens */}
                 <Row gutter={8} className="mb-4">
                   <Col xs={24} sm={24} md={12}>
                     <Form.Group>
                       <Form.ControlLabel>ໂຄງການ *</Form.ControlLabel>
                       <SelectPicker
-                        data={projectOptionsForSelect} // ✅ Changed
+                        data={projectOptionsForSelect}
                         value={formValue.projectId}
                         onChange={handleProjectChange}
                         placeholder="ເລືອກໂຄງການ"
@@ -363,7 +426,6 @@ const ZoneForm = ({
                   </Col>
                 </Row>
 
-                {/* Zone Name - Full Width */}
                 <Row className="mb-4">
                   <Col xs={24}>
                     <Form.Group>
@@ -373,7 +435,6 @@ const ZoneForm = ({
                   </Col>
                 </Row>
 
-                {/* Total Land Area - Full Width */}
                 <Row className="mb-4">
                   <Col xs={24}>
                     <Form.Group>
@@ -396,7 +457,6 @@ const ZoneForm = ({
                   </Col>
                 </Row>
 
-                {/* Price and Percentage - 2 Columns on larger screens */}
                 <Row gutter={8} className="mb-4">
                   <Col xs={24} sm={24} md={12}>
                     <Form.Group>
@@ -430,7 +490,6 @@ const ZoneForm = ({
                   </Col>
                 </Row>
 
-                {/* Description - Full Width */}
                 <Row className="mb-4">
                   <Col xs={24}>
                     <Form.Group>
@@ -458,7 +517,9 @@ const ZoneForm = ({
           onClick={handleSubmit}
           appearance="primary"
           loading={isLoading}
-          disabled={isLoading || loadingProjects || !!areaWarning}
+          disabled={
+            isLoading || loadingProjects || loadingArea || !!areaWarning
+          }
         >
           {zone ? "ອັບເດດ" : "ສ້າງ"}
         </Button>

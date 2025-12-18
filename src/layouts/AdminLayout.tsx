@@ -30,7 +30,7 @@ const AdminLayout: React.FC = () => {
     <div className="h-screen flex flex-col">
       <Header open={isSidebarOpen} setOpen={setSidebarOpen} />
 
-      <div className="flex flex-1 overflow-hidden pt-16">
+      <div className="flex flex-1 overflow-hidden pt-16  " >
         {/* Sidebar */}
         <aside
           className={`
@@ -52,14 +52,14 @@ const AdminLayout: React.FC = () => {
         )}
 
         {/* Content */}
-        <main 
+        <main
           className={`
             flex-1 overflow-auto bg-gray-100 
             transition-all duration-300
             ${isSidebarOpen ? "md:ml-64" : "md:ml-0"}
           `}
         >
-          <div className="max-w-7xl mx-auto">
+          <div>
             <Outlet />
           </div>
         </main>

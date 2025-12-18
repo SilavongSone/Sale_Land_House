@@ -3,7 +3,6 @@ import type { DistrictAttributes, DistrictCreateInput } from "../../src/types/di
 
 const BASE_URL = import.meta.env.VITE_API_URL;
 
-// 🔐 helper: ดึง token
 const getToken = () => localStorage.getItem("token");
 
 export const districtAPI = {

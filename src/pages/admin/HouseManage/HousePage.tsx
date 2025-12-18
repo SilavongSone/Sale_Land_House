@@ -2,8 +2,8 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { Button, Message, toaster, Panel } from "rsuite";
 import PlusIcon from "@rsuite/icons/Plus";
 import { useHouseStore } from "../../../store/houseStore";
-import { useLandPlotStore } from "../../../store/landPlotStore";
 import { useProjectStore } from "../../../store/projectStore";
+import { useAreaStore } from "../../../store/areaStore";
 
 import HouseForm from "./HouseForm";
 import HouseTable from "./HouseTable";
@@ -51,8 +51,8 @@ const HousePage = () => {
     deleteHouse,
   } = useHouseStore();
 
-  const { landPlots, fetchLandPlots } = useLandPlotStore();
   const { projectOptions, fetchProjectOptions } = useProjectStore();
+  const { clear: clearAreaData } = useAreaStore();
 
   // Local state
   const [showForm, setShowForm] = useState(false);
@@ -80,14 +80,21 @@ const HousePage = () => {
 
   // Fetch initial data
   useEffect(() => {
-    fetchLandPlots();
     fetchProjectOptions();
-  }, []);
+  }, [fetchProjectOptions]);
 
   // Fetch houses when filters change
   useEffect(() => {
     refetchCurrentData();
-  }, [filters.page, filters.limit, filters.orderBy, filters.order, filters.zoneId, filters.status, filters.projectId]);
+  }, [
+    filters.page,
+    filters.limit,
+    filters.orderBy,
+    filters.order,
+    filters.zoneId,
+    filters.status,
+    filters.projectId,
+  ]);
 
   // Handle errors
   useEffect(() => {
@@ -245,6 +252,7 @@ const HousePage = () => {
 
     try {
       await deleteHouse(houseToDelete.id);
+      clearAreaData(); // ✅ clear cache
       toaster.push(
         <Message showIcon type="success">
           ລົບສຳເລັດ
@@ -253,7 +261,7 @@ const HousePage = () => {
       );
       setShowDeleteModal(false);
       setHouseToDelete(null);
-      
+
       // ✅ Refetch data after successful delete
       refetchCurrentData();
     } catch {
@@ -264,12 +272,12 @@ const HousePage = () => {
         { placement: "topEnd" }
       );
     }
-  }, [houseToDelete, deleteHouse, refetchCurrentData]);
+  }, [houseToDelete, deleteHouse, clearAreaData, refetchCurrentData]);
 
   const handleCloseForm = useCallback(() => {
     setShowForm(false);
     setSelectedHouse(null);
-    
+
     // ✅ Refetch data after form closes (after save)
     refetchCurrentData();
   }, [setSelectedHouse, refetchCurrentData]);
@@ -352,8 +360,6 @@ const HousePage = () => {
         open={showForm}
         onClose={handleCloseForm}
         house={selectedHouse}
-        houses={houses}
-        landPlots={landPlots}
         projects={projectOptions || []}
       />
 

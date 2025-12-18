@@ -4,6 +4,7 @@ import PlusIcon from "@rsuite/icons/Plus";
 
 import { useZoneStore } from "../../../store/zoneStore";
 import { useProjectStore } from "../../../store/projectStore";
+import { useAreaStore } from "../../../store/areaStore";
 import ZoneForm from "./ZoneForm";
 import ZoneTable from "./ZoneTable";
 import DeleteConfirmModal from "../../../components/DeleteConFirmModal";
@@ -30,6 +31,8 @@ const ZonePage = () => {
     setSelectedZone,
     deleteZone,
   } = useZoneStore();
+
+  const { clear: clearAreaData } = useAreaStore();
 
   const {
     projectOptions,
@@ -93,7 +96,6 @@ const ZonePage = () => {
     setFilters((prev) => ({ ...prev, ...pendingFilters, page: 1 }));
   };
 
-
   const handleClearFilters = () => {
     const empty = { projectId: "", status: "" };
     setPendingFilters(empty);
@@ -104,6 +106,7 @@ const ZonePage = () => {
     if (!zoneToDelete) return;
     try {
       await deleteZone(zoneToDelete.zoneId);
+      clearAreaData(); // ✅ clear cache
       toaster.push(
         <Message showIcon type="success">
           ລົບໂຊນສຳເລັດ
@@ -113,14 +116,7 @@ const ZonePage = () => {
       setShowDeleteModal(false);
       setZoneToDelete(null);
     } catch (error: any) {
-      // toaster.push(
-      //   <Message showIcon type="error">
-      //     {error?.response?.data?.message ||
-      //       error?.message ||
-      //       "ລົບໂຊນບໍ່ສຳເລັດ"}
-      //   </Message>,
-      //   { placement: "topEnd" }
-      // );
+      // error handling
     }
   };
 
@@ -151,8 +147,16 @@ const ZonePage = () => {
 
   const filteredZones = clientSearch
     ? zones.filter((z) =>
-        [z.zoneName, z.description, z.zoneType, z.project?.projectName].some(
-          (f) => f?.toLowerCase().includes(clientSearch.toLowerCase())
+        [
+          z.zoneName,
+          z.zoneCode,
+          z.description,
+          z.zoneType,
+          z.project?.projectName,
+        ].some((f) =>
+          String(f ?? "")
+            .toLowerCase()
+            .includes(clientSearch.toLowerCase())
         )
       )
     : zones;

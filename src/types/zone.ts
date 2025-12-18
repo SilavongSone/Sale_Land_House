@@ -92,7 +92,7 @@ export interface ZoneStore {
   lastFetchParams: Record<string, any>; // ✅ Add this
 
   fetchZones: (params?: Record<string, any>) => Promise<void>;
-  fetchZoneOptions: () => Promise<void>;
+  // fetchZoneOptions: () => Promise<void>;
   fetchZoneById: (id: string | number) => Promise<void>;
   createZone: (data: ZoneCreateInput) => Promise<void>;
   updateZone: (id: string | number, data: ZoneUpdateInput) => Promise<void>;

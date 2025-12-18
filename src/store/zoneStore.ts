@@ -39,15 +39,15 @@ export const useZoneStore = create<ZoneStore>((set, get) => ({
   },
 
   // Fetch options
-  fetchZoneOptions: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const res = await zoneAPI.getOption();
-      set({ zones: res.data, isLoading: false });
-    } catch (e: any) {
-      set({ error: handleError(e, "Failed to load zones"), isLoading: false });
-    }
-  },
+  // fetchZoneOptions: async () => {
+  //   set({ isLoading: true, error: null });
+  //   try {
+  //     const res = await zoneAPI.getOption();
+  //     set({ zones: res.data, isLoading: false });
+  //   } catch (e: any) {
+  //     set({ error: handleError(e, "Failed to load zones"), isLoading: false });
+  //   }
+  // },
 
   // Fetch by ID
   fetchZoneById: async (id: string | number) => {

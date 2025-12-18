@@ -15,7 +15,8 @@ import {
 } from "rsuite";
 import { BarChart2, CheckCircle, Circle, Lock } from "lucide-react";
 import { useLandPlotStore } from "../../../store/landPlotStore";
-import { getZoneRemainingArea, calculateLandArea } from "../../../utils/area/calculations";
+import { useAreaStore } from "../../../store/areaStore"; // ✅ เพิ่ม
+import { calculateLandArea } from "../../../utils/area/calculations";
 import { calculateLandPlotTotalPrice } from "../../../utils/pricing/calculations";
 import { formatArea, formatCurrencyKib } from "../../../utils/formatters/formatn-number";
 import type {
@@ -23,7 +24,6 @@ import type {
   LandPlotStatus,
   LandPlotCreateInput,
 } from "../../../types/landPlot";
-import type { ZoneAreaItem } from "../../../types/zone";
 import type { House } from "../../../types/house";
 import type { Project } from "../../../types/project";
 
@@ -52,7 +52,7 @@ interface LandPlotFormProps {
   projects: Project[];
   preSelectedProjectId?: number;
   preSelectedZoneId?: number;
-  onSuccess?: () => void; // Added this prop
+  onSuccess?: () => void;
 }
 
 const INITIAL_FORM_VALUE: FormValue = {
@@ -98,10 +98,19 @@ const LandPlotForm = ({
   projects,
   preSelectedProjectId,
   preSelectedZoneId,
-  onSuccess, // Added this
+  onSuccess,
 }: LandPlotFormProps) => {
   const formRef = useRef<any>(null);
   const { createLandPlot, updateLandPlot, isLoading, fetchLandPlots } = useLandPlotStore();
+  
+  // ✅ ใช้ Area Store
+  const { 
+    zoneArea, 
+    fetchZoneArea, 
+    loading: loadingArea,
+    clear: clearAreaData 
+  } = useAreaStore();
+
   const [formValue, setFormValue] = useState<FormValue>(INITIAL_FORM_VALUE);
   const [areaWarning, setAreaWarning] = useState("");
 
@@ -123,29 +132,23 @@ const LandPlotForm = ({
     return allZones.filter((z) => Number(z.projectId) === Number(formValue.projectId));
   }, [formValue.projectId, allZones]);
 
+  // ✅ คำนวณพื้นที่ว่างจาก API
   const availableArea = useMemo(() => {
-    if (!formValue.zoneId) return 0;
-    const zone = allZones.find((z) => z.zoneId === formValue.zoneId);
-    if (!zone) return 0;
+    if (!formValue.zoneId || !zoneArea || zoneArea.zoneId !== formValue.zoneId) {
+      return 0;
+    }
 
-    const existingHouses: ZoneAreaItem[] = houses
-      .filter((h) => h.zoneId === formValue.zoneId)
-      .map((h) => ({ houseId: h.id, zoneId: h.zoneId, landArea: h.landArea }));
+    let actualRemainingArea = zoneArea.remainingArea;
+    
+    // ถ้ากำลังแก้ไข ให้บวกพื้นที่เดิมกลับเข้าไป
+    if (landPlot) {
+      actualRemainingArea += landPlot.landArea;
+    }
 
-    const existingPlots: ZoneAreaItem[] = landPlots
-      .filter((p) => p.zoneId === formValue.zoneId)
-      .map((p) => ({ landPlotId: p.landPlotId, zoneId: p.zoneId, landArea: p.landArea }));
+    return actualRemainingArea;
+  }, [formValue.zoneId, zoneArea, landPlot]);
 
-    return getZoneRemainingArea(
-      formValue.zoneId,
-      zone.totalLandArea,
-      existingHouses,
-      existingPlots,
-      landPlot?.landPlotId,
-      "LAND"
-    );
-  }, [formValue.zoneId, allZones, houses, landPlots, landPlot?.landPlotId]);
-
+  // ✅ Auto-fill pricePerSqm เมื่อเลือก Zone
   useEffect(() => {
     if (formValue.zoneId && !landPlot) {
       const selectedZone = allZones.find((z: any) => z.zoneId === formValue.zoneId);
@@ -155,12 +158,14 @@ const LandPlotForm = ({
     }
   }, [formValue.zoneId, allZones, landPlot]);
 
+  // ✅ ตรวจสอบพื้นที่
   const checkAreaAvailability = useCallback(
     (area: number) => {
       if (!formValue.zoneId || area <= 0) {
         setAreaWarning("");
         return;
       }
+      
       if (area > availableArea) {
         setAreaWarning(
           `ເນື້ອທີ່ແປ່ນເກີນພື້ນທີ່ທີ່ເຫຼືອຂອງໂຊນ! ພື້ນທີ່ເຫຼືອ: ${formatArea(availableArea)} m²`
@@ -171,6 +176,13 @@ const LandPlotForm = ({
     },
     [formValue.zoneId, availableArea]
   );
+
+  // ✅ ตรวจสอบพื้นที่ทุกครั้งที่ zoneArea เปลี่ยน
+  useEffect(() => {
+    if (formValue.zoneId && formValue.landArea > 0) {
+      checkAreaAvailability(formValue.landArea);
+    }
+  }, [zoneArea, formValue.zoneId, formValue.landArea]);
 
   const updateDimension = useCallback(
     (field: "plotWidth" | "plotLength", value: number | null) => {
@@ -205,12 +217,24 @@ const LandPlotForm = ({
       totalPrice: 0,
     }));
     setAreaWarning("");
-  }, []);
+    clearAreaData(); // ✅ clear cache
+  }, [clearAreaData]);
 
+  // ✅ เมื่อเปลี่ยน Zone -> Fetch area data
   const handleZoneChange = useCallback((zoneId: number | null) => {
     setFormValue((prev) => ({ ...prev, zoneId }));
     setAreaWarning("");
-  }, []);
+    
+    if (zoneId) {
+      fetchZoneArea(String(zoneId)).then(() => {
+        setTimeout(() => {
+          checkAreaAvailability(formValue.landArea);
+        }, 100);
+      });
+    } else {
+      clearAreaData();
+    }
+  }, [fetchZoneArea, clearAreaData, formValue.landArea, checkAreaAvailability]);
 
   useEffect(() => {
     if (formValue.landArea && formValue.pricePerSqm) {
@@ -238,18 +262,29 @@ const LandPlotForm = ({
           notes: landPlot.notes || "",
           status: landPlot.status,
         });
+        
+        // ✅ Fetch area data
+        if (landPlot.zoneId) {
+          fetchZoneArea(String(landPlot.zoneId));
+        }
       } else if (isPreSelected) {
         setFormValue({
           ...INITIAL_FORM_VALUE,
           projectId: preSelectedProjectId!,
           zoneId: preSelectedZoneId!,
         });
+        
+        // ✅ Fetch area data
+        if (preSelectedZoneId) {
+          fetchZoneArea(String(preSelectedZoneId));
+        }
       } else {
         setFormValue(INITIAL_FORM_VALUE);
+        clearAreaData();
       }
       setAreaWarning("");
     }
-  }, [landPlot, open, allZones, isPreSelected, preSelectedProjectId, preSelectedZoneId]);
+  }, [landPlot, open, allZones, isPreSelected, preSelectedProjectId, preSelectedZoneId, fetchZoneArea, clearAreaData]);
 
   const handleSubmit = async () => {
     if (!formRef.current?.check()) {
@@ -302,7 +337,6 @@ const LandPlotForm = ({
 
       await fetchLandPlots();
       
-      // Call onSuccess callback if provided
       if (onSuccess) {
         onSuccess();
       }
@@ -321,8 +355,9 @@ const LandPlotForm = ({
   const handleClose = useCallback(() => {
     setFormValue(INITIAL_FORM_VALUE);
     setAreaWarning("");
+    clearAreaData(); // ✅ clear cache
     onClose();
-  }, [onClose]);
+  }, [onClose, clearAreaData]);
 
   const projectOptions = useMemo(
     () =>
@@ -355,40 +390,74 @@ const LandPlotForm = ({
 
   const isZoneDisabled = !formValue.projectId || filteredZones.length === 0;
 
+  // ✅ แสดงข้อมูลจาก API
   const renderZoneInfo = () => {
     if (!formValue.zoneId) return null;
 
-    const zone = allZones.find((z: any) => z.zoneId === formValue.zoneId);
-    if (!zone) return null;
+    // รอข้อมูลจาก API
+    if (loadingArea) {
+      return (
+        <div className="bg-gray-100 p-3 rounded mt-2 text-sm text-center">
+          <Loader size="xs" content="ກຳລັງໂຫຼດຂໍ້ມູນ..." />
+        </div>
+      );
+    }
 
-    const remaining = availableArea;
-    const usedArea = zone.totalLandArea - remaining;
-    const utilization =
-      zone.totalLandArea > 0 ? ((usedArea / zone.totalLandArea) * 100).toFixed(1) : "0";
+    // ถ้ายังไม่มีข้อมูล หรือข้อมูลไม่ตรงกับ zone ที่เลือก
+    if (!zoneArea || zoneArea.zoneId !== formValue.zoneId) {
+      const zone = allZones.find((z: any) => z.zoneId === formValue.zoneId);
+      if (!zone) return null;
+
+      return (
+        <div className="bg-gray-100 p-3 rounded mt-2 text-sm">
+          <div className="flex items-center text-gray-600 gap-2">
+            <BarChart2 size={16} className="shrink-0" />
+            <span className="wrap-break-word">
+              ພື້ນທີ່ທັງໝົດ: <strong>{formatArea(zone.totalLandArea)} m²</strong>
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // คำนวณพื้นที่ที่เหลือจริง
+    let actualRemainingArea = zoneArea.remainingArea;
+    let actualUsedArea = zoneArea.usedArea;
+    
+    if (landPlot) {
+      actualRemainingArea += landPlot.landArea;
+      actualUsedArea -= landPlot.landArea;
+    }
+
+    const utilization = zoneArea.totalArea > 0
+      ? ((actualUsedArea / zoneArea.totalArea) * 100).toFixed(1)
+      : 0;
 
     return (
       <div className="bg-gray-100 p-3 rounded mt-2 text-sm">
         <div className="flex items-center text-gray-600 mb-2 gap-2">
           <BarChart2 size={16} className="shrink-0" />
           <span className="wrap-break-word">
-            ພື້ນທີ່ທັງໝົດ: <strong>{formatArea(zone.totalLandArea)} m²</strong>
+            ພື້ນທີ່ທັງໝົດ: <strong>{formatArea(zoneArea.totalArea)} m²</strong>
           </span>
         </div>
 
         <div className="flex items-center text-gray-600 mb-2 gap-2">
           <CheckCircle size={16} className="text-green-600 shrink-0" />
           <span className="wrap-break-word">
-            ໃຊ້ໄປແລ້ວ: <strong>{formatArea(usedArea)} m²</strong> ({utilization}%)
+            ໃຊ້ໄປແລ້ວ: <strong>{formatArea(actualUsedArea)} m²</strong> ({utilization}%)
           </span>
         </div>
 
         <div
           className={`flex items-center font-bold gap-2 ${
-            remaining > 0 ? "text-green-600" : "text-red-600"
+            actualRemainingArea > 0 ? "text-green-600" : "text-red-600"
           }`}
         >
           <Circle size={16} className="shrink-0" />
-          <span className="wrap-break-word">ພື້ນທີ່ເຫຼືອ: {formatArea(remaining)} m²</span>
+          <span className="wrap-break-word">
+            ພື້ນທີ່ເຫຼືອ: {formatArea(actualRemainingArea)} m²
+          </span>
         </div>
       </div>
     );
@@ -609,7 +678,7 @@ const LandPlotForm = ({
           onClick={handleSubmit}
           appearance="primary"
           loading={isLoading}
-          disabled={isLoading || !allZones.length || !projects.length || !!areaWarning}
+          disabled={isLoading || loadingArea || !allZones.length || !projects.length || !!areaWarning}
         >
           {landPlot ? "ອັບເດດ" : "ສ້າງ"}
         </Button>

@@ -68,6 +68,7 @@ export interface HouseStore {
 }
 
 export interface House {
+  houseArea: any;
   id: string | number;
   zoneId: string | number;
   houseNumber: string;

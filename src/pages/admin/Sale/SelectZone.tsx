@@ -1,246 +1,338 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useZoneStore } from "../../../store/zoneStore";
-import { useHouseStore } from "../../../store/houseStore";
-import { useLandPlotStore } from "../../../store/landPlotStore";
-import { MapPin, Home, Layers, TrendingUp, ChevronRight } from "lucide-react";
-import { Button, Tag, Loader, Message, Pagination, Grid, Row, Col } from "rsuite";
-import { getZoneAreaBreakdown } from "../../../utils/area/summary";
+import { useAreaStore } from "../../../store/areaStore";
+import { MapPin, Layers, Home, TrendingUp } from "lucide-react";
+import {
+  Button,
+  Loader,
+  Message,
+  Pagination,
+  Grid,
+  Row,
+  Col,
+  Tag,
+} from "rsuite";
 
-interface ZoneSelectionPageProps {
+interface ZoneSelectProps {
   selectedProject: any;
+  selectedZone?: any;
   onSelectZone: (zone: any) => void;
-  onBack: () => void;
+  onCancelSelection: () => void;
 }
 
-const ZoneSelectionPage: React.FC<ZoneSelectionPageProps> = ({
+const ZoneSelect: React.FC<ZoneSelectProps> = ({
   selectedProject,
+  selectedZone,
   onSelectZone,
-  onBack,
+  onCancelSelection,
 }) => {
-  const { zones, fetchZones, isLoading, error } = useZoneStore();
-  const { houses, fetchHouses } = useHouseStore();
-  const { landPlots, fetchLandPlots } = useLandPlotStore();
-  const [page, setPage] = useState(1);
+  const {
+    zones,
+    fetchZones,
+    isLoading: zonesLoading,
+    error: zonesError,
+  } = useZoneStore();
+  const { zoneArea, fetchZoneArea } = useAreaStore();
+
   const [localError, setLocalError] = useState<string | null>(null);
-  const limit = 9;
+  const [zonePage, setZonePage] = useState(1);
+  const [zoneAreaCache, setZoneAreaCache] = useState<Record<number, any>>({});
+  const limit = 8;
 
-  // Load data once
-  useEffect(() => {
-    if (!selectedProject?.projectId) return;
-
-    const loadData = async () => {
+  // Load zones when project is selected
+  const loadZones = useCallback(
+    async (projectId: number) => {
       try {
         setLocalError(null);
-        const projectId = selectedProject.projectId;
-        await Promise.all([
-          fetchZones({ projectId }),
-          fetchHouses({ projectId }),
-          fetchLandPlots({ projectId })
-        ]);
+        await fetchZones({ projectId });
       } catch (err: any) {
-        setLocalError(err.message || "ເກີດຂໍ້ຜິດພາດໃນການໂຫຼດຂໍ້ມູນ");
+        setLocalError(err.message || "ເກີດຂໍ້ຜິດພາດໃນການໂຫຼດຂໍ້ມູນໂຊນ");
       }
-    };
+    },
+    [fetchZones]
+  );
 
-    loadData();
-  }, [selectedProject?.projectId]);
+  useEffect(() => {
+    if (selectedProject) {
+      loadZones(selectedProject.projectId);
+      setZonePage(1);
+      setZoneAreaCache({});
+    }
+  }, [selectedProject?.projectId, loadZones]);
 
-  // Filter zones with properties
+  // Filter zones with HOUSE type or LAND type
   const filteredZones = useMemo(() => {
-    return zones.filter(zone => {
+    if (!selectedProject) return [];
+    return zones.filter((zone) => {
       if (zone.projectId !== Number(selectedProject?.projectId)) return false;
-      if (zone.zoneType === "LAND") return true;
-      return houses.filter(h => h.zoneId === zone.zoneId).length > 0;
+      return zone.zoneType === "LAND" || zone.zoneType === "HOUSE";
     });
-  }, [zones, houses, selectedProject?.projectId]);
+  }, [zones, selectedProject]);
 
-  // Paginate
+  // Paginate zones
   const paginatedZones = useMemo(() => {
-    const start = (page - 1) * limit;
+    const start = (zonePage - 1) * limit;
     return filteredZones.slice(start, start + limit);
-  }, [filteredZones, page]);
+  }, [filteredZones, zonePage]);
+
+  // Load area data for visible zones
+  useEffect(() => {
+    if (!selectedProject || paginatedZones.length === 0) return;
+
+    paginatedZones.forEach((zone) => {
+      if (zoneAreaCache[zone.zoneId as number]) return;
+
+      fetchZoneArea(String(zone.zoneId)).catch((err) => {
+        console.error(`Failed to fetch area for zone ${zone.zoneId}:`, err);
+      });
+    });
+  }, [paginatedZones, selectedProject, fetchZoneArea]);
+
+  // Cache zone area data
+  useEffect(() => {
+    if (zoneArea && zoneArea.zoneId) {
+      setZoneAreaCache((prev) => ({
+        ...prev,
+        [zoneArea.zoneId]: zoneArea,
+      }));
+    }
+  }, [zoneArea]);
 
   // Gradient colors
-  const gradients = [
-    'bg-gradient-to-br from-slate-100 to-slate-200',
-    'bg-gradient-to-br from-blue-50 to-blue-100',
-    'bg-gradient-to-br from-green-50 to-green-100',
-    'bg-gradient-to-br from-indigo-50 to-indigo-100',
+  const zoneGradients = [
+    "from-indigo-100 to-indigo-50",
+    "from-gray-200 to-gray-10",
+    "from-blue-100 to-blue-50",
+    "from-slate-200 to-slate-100",
   ];
 
-  const displayError = error || localError;
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader size="lg" content="ກຳລັງໂຫຼດຂໍ້ມູນໂຊນ..." vertical />
-      </div>
-    );
+  if (!selectedProject) {
+    return null;
   }
 
-  if (displayError) {
-    return (
-      <div className="max-w-md mx-auto mt-12">
-        <Message type="error" showIcon>
-          <strong>ເກີດຂໍ້ຜິດພາດ:</strong> {displayError}
-        </Message>
-        <div className="text-center mt-4">
-          <Button appearance="primary" onClick={onBack}>ກັບຄືນ</Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (filteredZones.length === 0) {
-    return (
-      <div className="text-center py-20">
-        <MapPin className="w-20 h-20 text-gray-300 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-700 mb-2">ບໍ່ມີຂໍ້ມູນໂຊນ</h3>
-        <p className="text-gray-500">ບໍ່ພົບໂຊນໃນໂຄງການນີ້</p>
-      </div>
-    );
-  }
+  const displayError = zonesError || localError;
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="mb-6">
-        <h4 className="text-2xl font-bold text-gray-800">ເລືອກໂຊນ</h4>
-        <p className="text-gray-600 mt-1">ກະລຸນາເລືອກໂຊນທີ່ທ່ານຕ້ອງການຂາຍ</p>
+    <div className="max-w-7xl mx-auto ">
+      <div >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h4 className="text-2xl font-bold text-gray-800">ເລືອກໂຊນ</h4>
+            <p className="text-gray-600 text-sm mt-1">
+              ໂຊນໃນໂຄງການ:{" "}
+              <span className="font-semibold text-blue-600">
+                {selectedProject.projectName}
+              </span>
+            </p>
+          </div>
+          <Button
+            appearance="ghost"
+            color="red"
+            size="sm"
+            onClick={onCancelSelection}
+          >
+            ຍົກເລີກການເລືອກ
+          </Button>
+        </div>
       </div>
 
-      <Grid fluid>
-        <Row gutter={16}>
-          {paginatedZones.map((zone, idx) => {
-            const isLand = zone.zoneType === "LAND";
-            const area = getZoneAreaBreakdown(zone.zoneId, zone.totalLandArea, houses, landPlots);
-
-            return (
-              <Col xs={24} sm={12} md={12} lg={6} key={zone.zoneId} className="mb-4">
-                <div
-                  onClick={() => onSelectZone(zone)}
-                  className="relative rounded-xl overflow-hidden cursor-pointer transition-all duration-300 h-full hover:shadow-lg hover:scale-[1.01]"
-                >
-                  <div className={`${gradients[idx % gradients.length]} p-4 relative overflow-hidden border border-gray-200 h-full`}>
-                    {/* Pattern */}
-                    <div className="absolute inset-0 opacity-5">
-                      <div className="absolute top-0 right-0 w-40 h-40 bg-gray-400 rounded-full -translate-y-1/2 translate-x-1/2" />
-                      <div className="absolute bottom-0 left-0 w-48 h-48 bg-gray-400 rounded-full translate-y-1/2 -translate-x-1/2" />
-                    </div>
-
-                    {/* Icon & Tag */}
-                    <div className="relative z-10 mb-3 flex items-center justify-between">
-                      <div className={`${isLand ? 'bg-green-600' : 'bg-blue-600'} p-3 rounded-xl shadow-md w-fit`}>
-                        {isLand ? (
-                          <MapPin className="w-8 h-8 text-white" />
-                        ) : (
-                          <Home className="w-8 h-8 text-white" />
-                        )}
-                      </div>
-                      <Tag color={isLand ? "green" : "blue"} size="md">
-                        {isLand ? "ແປງດິນ" : "ເຮືອນ"}
-                      </Tag>
-                    </div>
-
-                    {/* Content */}
-                    <div className="relative z-10 text-gray-800">
-                      <h3 className="text-lg font-bold mb-1 line-clamp-1">
-                        {zone.zoneName}
-                      </h3>
-                      <p className="text-xs text-gray-600 mb-3">
-                        {zone.zoneCode || "ບໍ່ມີລະຫັດ"}
-                      </p>
-
-                      {/* Stats */}
-                      <div className="grid grid-cols-2 gap-2 mb-3">
-                        <div className="bg-white/60 backdrop-blur-sm rounded-lg p-2 border border-gray-200">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <Layers className="w-3 h-3 text-gray-600" />
-                            <span className="text-xs text-gray-600">ເນື້ອທີ່</span>
-                          </div>
-                          <p className="font-bold text-sm text-gray-800">
-                            {zone.totalLandArea?.toLocaleString() || "0"} ຕ.ມ
-                          </p>
-                        </div>
-
-                        <div className="bg-white/60 backdrop-blur-sm rounded-lg p-2 border border-gray-200">
-                          <div className="flex items-center gap-1 mb-0.5">
-                            <TrendingUp className="w-3 h-3 text-gray-600" />
-                            <span className="text-xs text-gray-600">ຍັງເຫຼືອ</span>
-                          </div>
-                          <p className="font-bold text-sm text-green-600">
-                            {area.remaining.toLocaleString()} ຕ.ມ
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Usage Bar */}
-                      <div className="bg-white/60 backdrop-blur-sm rounded-lg p-2 border border-gray-200">
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-gray-600">ການນຳໃຊ້</span>
-                          <span className={`font-semibold ${
-                            area.utilization >= 90 ? 'text-red-600' : 
-                            area.utilization >= 70 ? 'text-orange-600' : 
-                            'text-green-600'
-                          }`}>
-                            {area.utilization.toFixed(1)}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              area.utilization >= 90 ? 'bg-red-500' : 
-                              area.utilization >= 70 ? 'bg-orange-500' : 
-                              'bg-green-500'
-                            }`}
-                            style={{ width: `${Math.min(100, area.utilization)}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Price (if available) */}
-                      {zone.pricePerSqm && (
-                        <div className="bg-white/80 backdrop-blur-sm rounded-lg p-2 border border-gray-200 mt-2">
-                          <p className="text-xs text-gray-600 mb-0.5">ລາຄາ/ຕ.ມ</p>
-                          <p className="text-sm font-bold text-blue-600">
-                            {zone.pricePerSqm.toLocaleString()} ₭
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Arrow */}
-                    <div className="absolute bottom-3 right-3 z-10">
-                      <div className="bg-white shadow-md p-1.5 rounded-full">
-                        <ChevronRight className="w-4 h-4 text-blue-600" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Col>
-            );
-          })}
-        </Row>
-      </Grid>
-
-      {filteredZones.length > limit && (
-        <div className="flex justify-center mt-8">
-          <Pagination
-            prev next first last ellipsis boundaryLinks
-            total={filteredZones.length}
-            limit={limit}
-            activePage={page}
-            onChangePage={setPage}
-            maxButtons={5}
-            size="md"
-          />
+      {/* Error Message */}
+      {displayError && (
+        <div className="mb-6">
+          <Message type="error" showIcon>
+            <strong>ເກີດຂໍ້ຜິດພາດ:</strong> {displayError}
+          </Message>
+          <div className="text-center mt-4">
+            <Button
+              appearance="primary"
+              onClick={() => loadZones(selectedProject.projectId)}
+            >
+              ລອງໃໝ່ອີກຄັ້ງ
+            </Button>
+          </div>
         </div>
       )}
 
-      <div className="mt-6 text-center text-sm text-gray-500">
-        ສະແດງ {paginatedZones.length} ຈາກທັງໝົດ {filteredZones.length} ໂຊນ
-      </div>
+      {zonesLoading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader size="lg" content="ກຳລັງໂຫຼດຂໍ້ມູນໂຊນ..." vertical />
+        </div>
+      ) : filteredZones.length === 0 && !displayError ? (
+        <div className="text-center py-20 bg-gray-50 rounded-xl">
+          <MapPin className="w-20 h-20 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 mb-2">
+            ບໍ່ມີຂໍ້ມູນໂຊນ
+          </h3>
+          <p className="text-gray-500">ບໍ່ພົບໂຊນໃນໂຄງການນີ້</p>
+        </div>
+      ) : filteredZones.length > 0 ? (
+        <>
+          <Grid fluid>
+            <Row gutter={16}>
+              {paginatedZones.map((zone, idx) => {
+                const isLand = zone.zoneType === "LAND";
+                const isSelected = selectedZone?.zoneId === zone.zoneId;
+
+                const cachedArea = zoneAreaCache[zone.zoneId as number];
+                const area = cachedArea
+                  ? {
+                      total: cachedArea.totalArea,
+                      used: cachedArea.usedArea,
+                      remaining: cachedArea.remainingArea,
+                      utilization: cachedArea.usedPercentage || 0,
+                    }
+                  : {
+                      total: zone.totalLandArea || 0,
+                      used: 0,
+                      remaining: zone.totalLandArea || 0,
+                      utilization: 0,
+                    };
+
+                return (
+                  <Col xs={24} sm={12} md={12} lg={6} key={zone.zoneId}>
+                    <div
+                      onClick={() => onSelectZone(zone)}
+                      className={`rounded-xl mt-4 cursor-pointer transition-all duration-300 h-full hover:shadow-lg hover:scale-[1.01] ${
+                        isSelected ? "ring-4 ring-blue-500 shadow-xl" : ""
+                      }`}
+                    >
+                      <div
+                        className={`bg-linear-to-br ${
+                          zoneGradients[idx % zoneGradients.length]
+                        } p-4 border ${
+                          isSelected ? "border-blue-500" : "border-gray-200"
+                        } rounded-xl h-full flex flex-col`}
+                      >
+                        {/* Header with Icon and Tag */}
+                        <div className="flex gap items-start justify-between mb-1">
+                          <div className=" flex gap-1.5">
+                            <div
+                              className={`${
+                                isSelected ? "bg-blue-600" : "bg-gray-600"
+                              } p-2 rounded-xl shadow-md transition-colors`}
+                            >
+                              {isLand ? (
+                                <MapPin className="w-5 h-5 text-white" />
+                              ) : (
+                                <Home className="w-5 h-5 text-white" />
+                              )}
+                            </div>
+                            <div className="">
+                              <h4 className="text-lg font-bold line-clamp-1 text-gray-800">
+                                {zone.zoneName}
+                              </h4>
+                            </div>
+                          </div>
+                          <Tag color={isLand ? "green" : "blue"} size="md">
+                            {isLand ? "ແປງດິນ" : "ເຮືອນ"}
+                          </Tag>
+                        </div>
+                        <p className="text-xs text-gray-600 mb-3">
+                          {zone.zoneCode || "ບໍ່ມີລະຫັດ"}
+                        </p>
+
+                        {/* Stats */}
+                        <div className="grid grid-cols-2 gap-2 mb-3 grow">
+                          <div className="bg-white/70 backdrop-blur-sm rounded-lg p-2.5 border border-gray-200/50 shadow-sm">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Layers className="w-3.5 h-3.5 text-gray-600" />
+                              <span className="text-xs text-gray-600 font-medium">
+                                ເນື້ອທີ່
+                              </span>
+                            </div>
+                            <p className="font-bold text-sm text-gray-800">
+                              {area.total?.toLocaleString() || "0"} ຕ.ມ
+                            </p>
+                          </div>
+
+                          <div className="bg-white/70 backdrop-blur-sm rounded-lg p-2.5 border border-gray-200/50 shadow-sm">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <TrendingUp className="w-3.5 h-3.5 text-gray-600" />
+                              <span className="text-xs text-gray-600 font-medium">
+                                ຍັງເຫຼືອ
+                              </span>
+                            </div>
+                            <p className="font-bold text-sm text-green-600">
+                              {area.remaining?.toLocaleString() || "0"} ຕ.ມ
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Usage Bar */}
+                        <div className="bg-white/70 backdrop-blur-sm rounded-lg p-2.5 border border-gray-200/50 shadow-sm mb-3">
+                          <div className="flex justify-between items-center text-xs mb-1.5">
+                            <span className="text-gray-600 font-medium">
+                              ການນຳໃຊ້
+                            </span>
+                            <span
+                              className={`font-semibold ${
+                                area.utilization >= 90
+                                  ? "text-red-600"
+                                  : area.utilization >= 70
+                                  ? "text-orange-600"
+                                  : "text-green-600"
+                              }`}
+                            >
+                              {area.utilization.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                area.utilization >= 90
+                                  ? "bg-red-500"
+                                  : area.utilization >= 70
+                                  ? "bg-orange-500"
+                                  : "bg-green-500"
+                              }`}
+                              style={{
+                                width: `${Math.min(100, area.utilization)}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Price */}
+                        {zone.pricePerSqm && (
+                          <div className="bg-white/80 backdrop-blur-sm rounded-lg p-2.5 border border-gray-200/50 shadow-sm mb-3">
+                            <p className="text-xs text-gray-600 mb-0.5 font-medium">
+                              ລາຄາ/ຕ.ມ
+                            </p>
+                            <p className="text-sm font-bold text-blue-600">
+                              {zone.pricePerSqm.toLocaleString()} ₭
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </Col>
+                );
+              })}
+            </Row>
+          </Grid>
+
+          {filteredZones.length > limit && (
+            <div className="flex justify-center mt-8">
+              <Pagination
+                prev
+                next
+                first
+                last
+                ellipsis
+                boundaryLinks
+                total={filteredZones.length}
+                limit={limit}
+                activePage={zonePage}
+                onChangePage={setZonePage}
+                maxButtons={5}
+                size="md"
+              />
+            </div>
+          )}
+        </>
+      ) : null}
     </div>
   );
 };
 
-export default ZoneSelectionPage;
+export default ZoneSelect;

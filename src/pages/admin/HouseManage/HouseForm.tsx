@@ -16,11 +16,9 @@ import {
 } from "rsuite";
 import { BarChart2, CheckCircle, Circle } from "lucide-react";
 import { useHouseStore } from "../../../store/houseStore";
-import { getZoneRemainingArea } from "../../../utils/area/calculations";
-import { getZoneAreaSummary } from "../../../utils/area/summary";
-import { formatArea, formatCurrencyKib} from "../../../utils/formatters/formatn-number";
+import { useAreaStore } from "../../../store/areaStore";
+import { formatArea, formatCurrencyKib } from "../../../utils/formatters/formatn-number";
 import type { House, HouseCreateInput, FormValue } from "../../../types/house";
-import type { ZoneAreaItem } from "../../../types/zone";
 import type { Project } from "../../../types/project";
 
 const { StringType, NumberType } = Schema.Types;
@@ -29,8 +27,6 @@ interface HouseFormProps {
   open: boolean;
   onClose: () => void;
   house: House | null;
-  houses: House[];
-  landPlots: any[];
   projects: Project[];
 }
 
@@ -104,16 +100,18 @@ const validationModel = Schema.Model({
   status: StringType().isRequired("ກະລຸນາເລືອກສະຖານະ"),
 });
 
-const HouseForm = ({
-  open,
-  onClose,
-  house,
-  houses,
-  landPlots,
-  projects,
-}: HouseFormProps) => {
+const HouseForm = ({ open, onClose, house, projects }: HouseFormProps) => {
   const formRef = useRef<any>(null);
   const { createHouse, updateHouse, isLoading } = useHouseStore();
+
+  // ✅ ใช้ Area Store แทนการคำนวณเอง
+  const {
+    zoneArea,
+    fetchZoneArea,
+    loading: loadingArea,
+    clear: clearAreaData,
+  } = useAreaStore();
+
   const [formValue, setFormValue] = useState<FormValue>(INITIAL_FORM_VALUE);
   const [areaWarning, setAreaWarning] = useState("");
 
@@ -138,30 +136,6 @@ const HouseForm = ({
     );
   }, [formValue.projectId, allZones]);
 
-  // Convert houses and plots to ZoneAreaItem format
-  const getZoneAreaItems = useCallback(
-    (zoneId: number) => {
-      const existingHouses: ZoneAreaItem[] = houses
-        .filter((h) => Number(h.zoneId) === zoneId)
-        .map((h) => ({
-          houseId: h.id,
-          zoneId: Number(h.zoneId),
-          landArea: Number(h.landArea),
-        }));
-
-      const existingPlots: ZoneAreaItem[] = landPlots
-        .filter((p) => Number(p.zoneId) === zoneId)
-        .map((p) => ({
-          landPlotId: p.landPlotId,
-          zoneId: Number(p.zoneId),
-          landArea: Number(p.landArea),
-        }));
-
-      return { existingHouses, existingPlots };
-    },
-    [houses, landPlots]
-  );
-
   // Calculate usableArea = landArea - builtArea
   useEffect(() => {
     const land = formValue.landArea ?? 0;
@@ -169,47 +143,6 @@ const HouseForm = ({
     const usable = Math.max(0, land - built);
     setFormValue((prev) => ({ ...prev, usableArea: usable }));
   }, [formValue.landArea, formValue.builtArea]);
-
-  // Calculate available area for selected zone
-  const availableArea = useMemo(() => {
-    if (!formValue.zoneId) return 0;
-
-    const zone = allZones.find((z) => z.zoneId === formValue.zoneId);
-    if (!zone) return 0;
-
-    const { existingHouses, existingPlots } = getZoneAreaItems(
-      formValue.zoneId
-    );
-
-    return getZoneRemainingArea(
-      formValue.zoneId,
-      zone.totalLandArea,
-      existingHouses, 
-      existingPlots,
-      house?.id,
-      "HOUSE"
-    );
-  }, [formValue.zoneId, allZones, getZoneAreaItems, house?.id]);
-
-  // Get zone area summary
-  const zoneInfo = useMemo(() => {
-    if (!formValue.zoneId) return null;
-
-    const zone = allZones.find((z) => z.zoneId === formValue.zoneId);
-    if (!zone) return null;
-
-    const { existingHouses, existingPlots } = getZoneAreaItems(
-      formValue.zoneId
-    );
-    const areaSummary = getZoneAreaSummary(
-      formValue.zoneId,
-      zone.totalLandArea,
-      existingHouses,
-      existingPlots
-    );
-
-    return { zone, ...areaSummary, remaining: availableArea };
-  }, [formValue.zoneId, allZones, getZoneAreaItems, availableArea]);
 
   // Calculate land price
   const calculateLandPrice = useCallback(
@@ -221,32 +154,45 @@ const HouseForm = ({
     [allZones]
   );
 
-  // Check if area exceeds available zone area
-  const checkAreaAvailability = useCallback(
-    (area: number) => {
-      if (!formValue.zoneId || area <= 0) {
+  // ✅ ฟังก์ชันตรวจสอบพื้นที่จาก API
+  const checkZoneArea = useCallback(
+    (requestedArea: number) => {
+      if (!formValue.zoneId || requestedArea <= 0) {
         setAreaWarning("");
         return;
       }
 
-      if (area > availableArea) {
+      // ถ้ายังไม่มีข้อมูลจาก API
+      if (!zoneArea || zoneArea.zoneId !== formValue.zoneId) {
+        return;
+      }
+
+      // ถ้ากำลังแก้ไข House ต้องหัก area ของ House นี้ออกก่อน
+      let actualRemainingArea = zoneArea.remainingArea;
+
+      if (house) {
+        // เพิ่มพื้นที่ของ house ที่กำลังแก้กลับเข้าไป
+        actualRemainingArea += Number(house.landArea);
+      }
+
+      if (requestedArea > actualRemainingArea) {
         setAreaWarning(
           `ເນື້ອທີ່ດິນເກີນພື້ນທີ່ທີ່ເຫຼືອຂອງໂຊນ! ພື້ນທີ່ເຫຼືອ: ${formatArea(
-            availableArea
+            actualRemainingArea
           )} m²`
         );
       } else {
         setAreaWarning("");
       }
     },
-    [formValue.zoneId, availableArea]
+    [formValue.zoneId, zoneArea, house]
   );
 
   // Handle land area change
   const handleLandAreaChange = useCallback(
     (value: string | number | null) => {
       const area = Number(value) || 0;
-      checkAreaAvailability(area);
+      checkZoneArea(area);
 
       // Auto-calculate land price
       const landPrice = calculateLandPrice(formValue.zoneId, area);
@@ -257,7 +203,7 @@ const HouseForm = ({
         landPrice,
       }));
     },
-    [checkAreaAvailability, calculateLandPrice, formValue.zoneId]
+    [checkZoneArea, calculateLandPrice, formValue.zoneId]
   );
 
   // Handle project change
@@ -271,16 +217,31 @@ const HouseForm = ({
       totalPrice: 0,
     }));
     setAreaWarning("");
-  }, []);
+    clearAreaData();
+  }, [clearAreaData]);
 
-  // Handle zone change
-  const handleZoneChange = useCallback((zoneId: number | null) => {
-    setFormValue((prev) => ({
-      ...prev,
-      zoneId,
-    }));
-    setAreaWarning("");
-  }, []);
+  // ✅ เมื่อเปลี่ยน Zone -> Fetch area data
+  const handleZoneChange = useCallback(
+    (zoneId: number | null) => {
+      setFormValue((prev) => ({
+        ...prev,
+        zoneId,
+      }));
+
+      if (zoneId) {
+        fetchZoneArea(String(zoneId)).then(() => {
+          // หลังจาก fetch เสร็จ ให้ตรวจสอบพื้นที่
+          setTimeout(() => {
+            checkZoneArea(formValue.landArea);
+          }, 100);
+        });
+      } else {
+        clearAreaData();
+        setAreaWarning("");
+      }
+    },
+    [fetchZoneArea, clearAreaData, checkZoneArea, formValue.landArea]
+  );
 
   // Update land price when zone changes
   useEffect(() => {
@@ -292,6 +253,13 @@ const HouseForm = ({
       setFormValue((prev) => ({ ...prev, landPrice }));
     }
   }, [formValue.zoneId, formValue.landArea, calculateLandPrice]);
+
+  // ✅ ตรวจสอบพื้นที่ทุกครั้งที่ zoneArea เปลี่ยน
+  useEffect(() => {
+    if (formValue.zoneId && formValue.landArea > 0) {
+      checkZoneArea(formValue.landArea);
+    }
+  }, [zoneArea, formValue.zoneId, formValue.landArea, checkZoneArea]);
 
   // Load data when editing
   useEffect(() => {
@@ -317,12 +285,19 @@ const HouseForm = ({
         description: house.description || "",
         status: house.status,
       });
+
+      // ✅ Fetch area data สำหรับ zone ที่เลือก
+      if (house.zoneId) {
+        fetchZoneArea(String(house.zoneId));
+      }
+
       setAreaWarning("");
     } else if (!house && open) {
       setFormValue(INITIAL_FORM_VALUE);
       setAreaWarning("");
+      clearAreaData();
     }
-  }, [house, open, allZones]);
+  }, [house, open, allZones, fetchZoneArea, clearAreaData]);
 
   // Handle form submission
   const handleSubmit = async () => {
@@ -397,8 +372,9 @@ const HouseForm = ({
   const handleClose = useCallback(() => {
     setFormValue(INITIAL_FORM_VALUE);
     setAreaWarning("");
+    clearAreaData();
     onClose();
-  }, [onClose]);
+  }, [onClose, clearAreaData]);
 
   // Prepare project options
   const projectOptions = useMemo(
@@ -429,34 +405,76 @@ const HouseForm = ({
 
   const isZoneDisabled = !formValue.projectId || filteredZones.length === 0;
 
-  // Render zone information panel
+  // ✅ แสดงข้อมูลจาก API
   const renderZoneInfo = () => {
-    if (!zoneInfo) return null;
+    if (!formValue.zoneId) return null;
+
+    const selectedZone = allZones.find((z) => z.zoneId === formValue.zoneId);
+    if (!selectedZone) return null;
+
+    // รอข้อมูลจาก API
+    if (loadingArea) {
+      return (
+        <div className="bg-gray-100 p-3 rounded mt-2 text-sm text-center">
+          <Loader size="xs" content="ກຳລັງໂຫຼດຂໍ້ມູນ..." />
+        </div>
+      );
+    }
+
+    // ถ້ายังไม่มีข้อมูล หรือข้อมูลไม่ตรงกับ zone ที่เลือก
+    if (!zoneArea || zoneArea.zoneId !== formValue.zoneId) {
+      return (
+        <div className="bg-gray-100 p-3 rounded mt-2 text-sm">
+          <div className="flex items-center text-gray-600 gap-2">
+            <BarChart2 size={16} className="shrink-0" />
+            <span>
+              ພື້ນທີ່ທັງໝົດ:{" "}
+              <strong>{formatArea(selectedZone.totalLandArea)} m²</strong>
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    // คำนวณพื้นที่ที่เหลือจริง (ถ้ากำลังแก้ไข ให้บวกพื้นที่เดิมกลับเข้าไป)
+    let actualRemainingArea = zoneArea.remainingArea;
+    let actualUsedArea = zoneArea.usedArea;
+
+    if (house) {
+      actualRemainingArea += Number(house.landArea);
+      actualUsedArea -= Number(house.landArea);
+    }
+
+    const utilization =
+      zoneArea.totalArea > 0
+        ? ((actualUsedArea / zoneArea.totalArea) * 100).toFixed(1)
+        : 0;
 
     return (
       <div className="bg-gray-100 p-3 rounded mt-2 text-sm">
         <div className="flex items-center text-gray-600 mb-2 gap-2">
           <BarChart2 size={16} className="shrink-0" />
           <span>
-            ພື້ນທີ່ທັງໝົດ: <strong>{formatArea(zoneInfo.total)} m²</strong>
+            ພື້ນທີ່ທັງໝົດ:{" "}
+            <strong>{formatArea(zoneArea.totalArea)} m²</strong>
           </span>
         </div>
 
         <div className="flex items-center text-gray-600 mb-2 gap-2">
           <CheckCircle size={16} className="text-green-600 shrink-0" />
           <span>
-            ໃຊ້ໄປແລ້ວ: <strong>{formatArea(zoneInfo.used)} m²</strong> (
-            {zoneInfo.utilization.toFixed(1)}%)
+            ໃຊ້ໄປແລ້ວ: <strong>{formatArea(actualUsedArea)} m²</strong> (
+            {utilization}%)
           </span>
         </div>
 
         <div
           className={`flex items-center font-bold gap-2 ${
-            zoneInfo.remaining > 0 ? "text-green-600" : "text-red-600"
+            actualRemainingArea > 0 ? "text-green-600" : "text-red-600"
           }`}
         >
           <Circle size={16} className="shrink-0" />
-          <span>ພື້ນທີ່ເຫຼືອ: {formatArea(zoneInfo.remaining)} m²</span>
+          <span>ພື້ນທີ່ເຫຼືອ: {formatArea(actualRemainingArea)} m²</span>
         </div>
       </div>
     );
@@ -557,7 +575,7 @@ const HouseForm = ({
                       <div
                         style={{ fontSize: 12, color: "#f44336", marginTop: 4 }}
                       >
-                        ⚠️ {areaWarning}
+                        🚫 {areaWarning}
                       </div>
                     )}
                   </Form.Group>
@@ -657,7 +675,9 @@ const HouseForm = ({
                       placeholder="0"
                       min={0}
                       step={1000000}
-                      formatter={(value: any) => formatCurrencyKib(Number(value))}
+                      formatter={(value: any) =>
+                        formatCurrencyKib(Number(value))
+                      }
                       block
                     />
                   </Form.Group>
@@ -695,7 +715,7 @@ const HouseForm = ({
                 </Col>
               </Row>
 
-              {/* Furniture Status and Status */}
+              {/* Status */}
               <Row gutter={8} style={{ marginBottom: 16 }}>
                 <Col xs={24} sm={12} md={12}>
                   <Form.Group>
@@ -743,7 +763,11 @@ const HouseForm = ({
           appearance="primary"
           loading={isLoading}
           disabled={
-            isLoading || !allZones.length || !projects.length || !!areaWarning
+            isLoading ||
+            !allZones.length ||
+            !projects.length ||
+            loadingArea ||
+            !!areaWarning
           }
         >
           {house ? "ອັບເດດ" : "ສ້າງ"}

@@ -22,7 +22,6 @@ export const paymentAPI = {
   // GET /payments
   // =========================
   getAll: async (params?: FetchPaymentsParams) => {
-    // ✅ แก้ไข: ใช้ template string ให้ถูกต้อง
     const res = await axios.get(`${BASE_URL}/payments`, {
       params,
       headers: authHeader(),

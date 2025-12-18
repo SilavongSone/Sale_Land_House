@@ -85,6 +85,10 @@ const ZoneTable = ({
           </Column>
 
           <Column width={120}>
+            <HeaderCell>Code ໂຊນ</HeaderCell>
+            <Cell dataKey="zoneCode" />
+          </Column>
+          <Column width={100}>
             <HeaderCell>ຊື່ໂຊນ</HeaderCell>
             <Cell dataKey="zoneName" />
           </Column>

@@ -107,7 +107,7 @@ const AppRoutes = () => {
             </Suspense>
           }
         />
-        <Route
+        {/* <Route
           path="sales/:projectId"
           element={
             <Suspense fallback={<LoadingScreen />}>
@@ -122,7 +122,7 @@ const AppRoutes = () => {
               <SalePage />
             </Suspense>
           }
-        />
+        /> */}
 
         <Route
           path="expense"

@@ -3,23 +3,12 @@ import type { Zone, ZoneCreateInput, ZoneUpdateInput, FetchZonesParams, ZonesRes
 
 const BASE_URL = import.meta.env.VITE_API_URL;
 
-// 🔐 helper ดึง token
 const getToken = () => localStorage.getItem("token");
 
 export const zoneAPI = {
   getAll: async (params?: FetchZonesParams): Promise<ZonesResponse> => {
     const res = await axios.get<ZonesResponse>(`${BASE_URL}/zones`, {
       params,
-      headers: { 
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`,
-      },
-    });
-    return res.data;
-  },
-
-  getOption: async (): Promise<{ data: Zone[] }> => {
-    const res = await axios.get<{ data: Zone[] }>(`${BASE_URL}/zones/options`, {
       headers: { 
         "Content-Type": "application/json",
         Authorization: `Bearer ${getToken()}`,
